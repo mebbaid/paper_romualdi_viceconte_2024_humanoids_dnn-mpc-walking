@@ -26,6 +26,7 @@
 
 #include <yarp/os/BufferedPort.h>
 #include <yarp/sig/Vector.h>
+#include <yarp/os/Network.h>
 
 namespace CentroidalMPCWalking
 {
@@ -94,6 +95,9 @@ class CentroidalMPCBlock
     std::chrono::nanoseconds m_mannCallingTime{std::chrono::nanoseconds::zero()};
 
     yarp::os::BufferedPort<yarp::sig::Vector> m_joypadPort;
+
+    yarp::os::BufferedPort<yarp::sig::Vector> m_hdePort;
+    bool m_useTeleoperation{false};
 
     BipedalLocomotion::Contacts::ContactPhaseList m_phaseList;
 

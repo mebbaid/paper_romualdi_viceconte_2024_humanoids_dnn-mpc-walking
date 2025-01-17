@@ -160,6 +160,7 @@ class WholeBodyQPBlock
     BipedalLocomotion::SimplifiedModelControllers::CoMZMPController m_CoMZMPController;
     struct IKProblemAndTask
     {
+
         BipedalLocomotion::IK::IntegrationBasedIKProblem ikProblem;
         std::shared_ptr<BipedalLocomotion::IK::SE3Task> leftFootTask;
         std::shared_ptr<BipedalLocomotion::IK::SE3Task> rightFootTask;
@@ -174,7 +175,7 @@ class WholeBodyQPBlock
         // weights
         std::shared_ptr<BipedalLocomotion::ContinuousDynamicalSystem::MultiStateWeightProvider> jointRegularizationWeight;
         std::shared_ptr<BipedalLocomotion::ContinuousDynamicalSystem::MultiStateWeightProvider> leftFootWeight;
-        std::shared_ptr<BipedalLocomotion::ContinuousDynamicalSystem::MultiStateWeightProvider> rightFootWeight;        
+        std::shared_ptr<BipedalLocomotion::ContinuousDynamicalSystem::MultiStateWeightProvider> rightFootWeight;
     };
     IKProblemAndTask m_IKandTasks;
 
