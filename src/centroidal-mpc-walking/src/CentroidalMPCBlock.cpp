@@ -56,10 +56,10 @@ bool updateContactPhaseList(const std::chrono::nanoseconds& currentTime,
     constexpr auto logPrefix = "[updateContactPhaseList]";
 
     using namespace std::chrono_literals;
-    // to prevent the MPC to move the contact just before the contact switch we added a small buffer in the CentroidalMPC class
+    // to prevent the MPC to move the contact just before the contact switch we added a small buffer
+    // in the CentroidalMPC class
     std::chrono::nanoseconds adjustmentPreventionTime = 200ms;
     auto currentTimeAdjusted = currentTime + adjustmentPreventionTime;
-
 
     for (const auto& [name, contactList] : mannPhaseList.lists())
     {
@@ -74,7 +74,8 @@ bool updateContactPhaseList(const std::chrono::nanoseconds& currentTime,
             // if the activation time of the contact is lower than equal to the time in the future
             // from which the MPC cannot change the contact anymore then
             // 1. we check if the MPC has a contact at the same time
-            // 2. if the MPC has a contact at the same time we add the contact to the contact list where
+            // 2. if the MPC has a contact at the same time we add the contact to the contact list
+            // where
             //    the activation / deactivation are taken from the MANN and the rest from the MPC
             auto contact = *mannIt;
             if (contact.activationTime <= currentTimeAdjusted)
@@ -82,10 +83,12 @@ bool updateContactPhaseList(const std::chrono::nanoseconds& currentTime,
                 auto mpcIt = mpcList.getActiveContact(currentTimeAdjusted);
                 if (mpcIt == mpcList.cend())
                 {
-                    log()->error("{} Unable to find the contact of the {} foot at time {} in the MPC list.",
+                    log()->error("{} Unable to find the contact of the {} foot at time {} in the "
+                                 "MPC list.",
                                  logPrefix,
                                  name,
-                                 std::chrono::duration_cast<std::chrono::milliseconds>(currentTimeAdjusted));
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     currentTimeAdjusted));
                     return false;
                 }
 
@@ -93,7 +96,6 @@ bool updateContactPhaseList(const std::chrono::nanoseconds& currentTime,
                 contact.activationTime = mannIt->activationTime;
                 contact.deactivationTime = mannIt->deactivationTime;
             }
-
 
             if (!contactListMap[name].addContact(contact))
             {
@@ -105,7 +107,6 @@ bool updateContactPhaseList(const std::chrono::nanoseconds& currentTime,
                 return false;
             }
         }
-
 
         // get the index of the current contact in the mpc phase list
         auto mpcPresentContact = mpcList.getActiveContact(currentTime);
@@ -293,6 +294,13 @@ bool CentroidalMPCBlock::initialize(std::weak_ptr<const IParametersHandler> hand
         log()->error("{} Unable to get the time horizon or the sampling time.", logPrefix);
         return false;
     }
+
+    if (!ptrMPC->getParameter("use_teleoperation", m_useTeleoperation))
+    {
+        log()->error("{} Unable to get the use_teleoperation parameter.", logPrefix);
+        return false;
+    }
+
     std::size_t numberOfMpcKnots = mpcHorizon / mpcSamplingTime + 1;
     m_comFrequencyAdapter.outputTimeKnots.resize(numberOfMpcKnots);
     m_angularMomentumFrequencyAdapter.outputTimeKnots.resize(numberOfMpcKnots);
@@ -338,6 +346,8 @@ bool CentroidalMPCBlock::initialize(std::weak_ptr<const IParametersHandler> hand
         -0.027139990021827265, 0.10001107590632177, -0.20205046715326178, 0.03895909848833218, // left arm
         -0.03078463156388759, 0.09999763869735125, -0.20637555723866208, -0.003024742916772738; // right arm
     // clang-format on
+    m_output.regularizedJoints.resize(jointPositions.size());
+
 
     iDynTree::KinDynComputations kinDyn;
     kinDyn.loadRobotModel(ml.model());
@@ -429,6 +439,20 @@ bool CentroidalMPCBlock::initialize(std::weak_ptr<const IParametersHandler> hand
     m_generator.setInitialState(jointPositions, basePose);
 
     m_joypadPort.open("/centroidal-mpc/joystick:i");
+    std::string hdePortName = "/centroidal-mpc/hde:i";
+    m_hdePort.open(hdePortName);
+
+    // in case m_useTeleoperation, we need to connect this port to a port named
+    // /ikSolution/jointNamesAndStates:o
+    std::string ikSolutionPortName = "/ikSolution/jointNamesAndStates:o";
+    if (m_useTeleoperation)
+    {
+        if (!yarp::os::Network::connect(ikSolutionPortName, hdePortName))
+        {
+            BipedalLocomotion::log()->info("{} Unable to connect to hde ik port ", logPrefix);
+            return false;
+        }
+    }
 
     m_directionalInput.motionDirection.setZero();
     m_directionalInput.facingDirection.setZero();
@@ -502,31 +526,32 @@ bool CentroidalMPCBlock::advance()
     }
 
     using namespace std::chrono_literals;
-    if (m_absoluteTime > 2s)
-    {
-        m_directionalInput.motionDirection << 1, 0;
-        m_directionalInput.facingDirection << 1, 0;
-    }
+    // if (m_absoluteTime > 2s )
+    // {
+    //     m_directionalInput.motionDirection << 1, 0;
+    //     m_directionalInput.facingDirection << 0, 0;
+    // }
 
-    if (m_absoluteTime > 12s)
-    {
-        m_directionalInput.motionDirection << 1, 0;
-        m_directionalInput.facingDirection << 0, 1;
-    }
+    // if (m_absoluteTime > 12s)
+    // {
+    //     m_directionalInput.motionDirection << 1, 0;
+    //     m_directionalInput.facingDirection << 0, 1;
+    // }
 
+    // if (m_absoluteTime > 22s)
+    // {
+    //      m_directionalInput.motionDirection << 1, 0;
+    //      m_directionalInput.facingDirection << 1, 0;
+    // }
 
-    if (m_absoluteTime > 22s)
-    {
-         m_directionalInput.motionDirection << 1, 0;
-         m_directionalInput.facingDirection << 1, 0;
-    }
+    // if (m_absoluteTime > 32s)
+    // {
+    //     m_directionalInput.motionDirection << 0, 0;
+    //     m_directionalInput.facingDirection << 1, 0;
+    // }
 
-    if (m_absoluteTime > 32s)
-    {
-        m_directionalInput.motionDirection << 0, 0;
-        m_directionalInput.facingDirection << 1, 0;
-    }
-
+    m_directionalInput.motionDirection << 0, 0;
+    m_directionalInput.facingDirection << 0, 0;
 
     m_output.facingDirection = m_directionalInput.facingDirection;
     m_output.motionDirection = m_directionalInput.motionDirection;
@@ -636,7 +661,25 @@ bool CentroidalMPCBlock::advance()
         comz0mann = m_MANNGeneratorOutput.comTrajectory.front()[2];
     }
 
-    m_output.regularizedJoints = m_MANNGeneratorOutput.jointPositions.front();
+    if (!m_useTeleoperation)
+    {
+        m_output.regularizedJoints = m_MANNGeneratorOutput.jointPositions.front();
+    } else
+    {
+        yarp::sig::Vector* tmp = m_hdePort.read(false);
+        Eigen::VectorXd hdeJoints(20);
+        if (tmp != nullptr)
+        {
+            m_output.regularizedJoints << 0, 0, 0, 0, 0, 0, // left leg
+                0, 0, 0, 0, 0, 0, // right leg
+                tmp->operator()(14), tmp->operator()(15), tmp->operator()(16), // torso
+                tmp->operator()(17), tmp->operator()(18), tmp->operator()(19), // neck
+                tmp->operator()(0), tmp->operator()(1), tmp->operator()(2),
+                tmp->operator()(3), // left arm
+                tmp->operator()(7), tmp->operator()(8), tmp->operator()(9),
+                tmp->operator()(10); // right arm
+        }
+    }
     // for the next steps we need a valid input
     if (!m_inputValid)
     {

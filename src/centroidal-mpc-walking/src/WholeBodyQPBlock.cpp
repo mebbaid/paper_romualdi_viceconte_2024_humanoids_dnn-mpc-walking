@@ -2502,7 +2502,7 @@ bool WholeBodyQPBlock::advance()
     m_floatingBaseSystem.integrator->integrate(0s, m_dT);
 
     const auto& [jointPosition] = m_floatingBaseSystem.integrator->getSolution();
-    m_desJointPos = jointPosition;    
+    m_desJointPos = jointPosition;
     m_desJointVel = m_IKandTasks.ikProblem.ik->getOutput().jointVelocity;
 
     BipedalLocomotion::Math::Wrenchd leftWrench = BipedalLocomotion::Math::Wrenchd::Zero();
@@ -2529,7 +2529,7 @@ bool WholeBodyQPBlock::advance()
         }
     }
 
-    m_desJointPosForRobot = m_desJointPos;    
+    m_desJointPosForRobot = m_desJointPos;
 
     const auto controlMode = BipedalLocomotion::RobotInterface::IRobotControl::ControlMode::PositionDirect;
     if (!m_robotControl.setReferences(m_desJointPosForRobot,
