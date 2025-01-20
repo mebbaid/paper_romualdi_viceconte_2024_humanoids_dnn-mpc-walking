@@ -111,6 +111,7 @@ class WholeBodyQPBlock
     Eigen::VectorXd m_currentJointVelWithoutNeck;
 
     std::vector<std::string> m_jointsList;
+    std::unordered_map<std::string, double> m_removedJointsMap{};
 
     bool m_filterJointVel{false};
 
@@ -275,7 +276,8 @@ class WholeBodyQPBlock
     bool instantiateSwingFootPlanner(
         std::shared_ptr<const BipedalLocomotion::ParametersHandler::IParametersHandler> handler);
 
-    bool createKinDyn(const std::string& modelPath, const std::vector<std::string>& jointLists);
+    bool createKinDyn(const std::string& modelPath, const std::vector<std::string>& jointLists,
+                     const std::unordered_map<std::string, double> &jointsToRemoveMap);
 
     bool updateFloatingBase();
 

@@ -402,12 +402,13 @@ bool WholeBodyQPBlock::configureLinkWithIMU(std::weak_ptr<const IParametersHandl
 }
 
 bool WholeBodyQPBlock::createKinDyn(const std::string& modelPath,
-                                    const std::vector<std::string>& jointLists)
+                                    const std::vector<std::string>& jointLists,
+                                    const std::unordered_map<std::string, double>& jointsToRemoveMap)
 {
     constexpr auto errorPrefix = "[WholeBodyQPBlock::createKinDyn]";
 
     iDynTree::ModelLoader ml;
-    if (!ml.loadReducedModelFromFile(modelPath, jointLists))
+    if (!ml.loadReducedModelFromFile(modelPath, jointLists, jointsToRemoveMap))
     {
         BipedalLocomotion::log()->error("{} Unable to load the reduced model located in: {}.",
                                         errorPrefix,
@@ -1039,7 +1040,6 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
         return false;
     }
 
-
     if (!parametersHandler->getParameter("enable_com_zmp_controller", m_enableCoMZMPController))
     {
         BipedalLocomotion::log()->error("{} Unable to find the enable_com_zmp_controller.",
@@ -1055,7 +1055,6 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
                                         logPrefix);
         return false;
     }
-
 
     BipedalLocomotion::log()->info("mpc acts as planner: {}", m_mpcActsAsPlanner);
     BipedalLocomotion::log()->info("filter joint velocity: {}", m_filterJointVel);
@@ -1135,9 +1134,67 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
         return false;
     }
 
+    Eigen::VectorXd jointsPosition;
+    if (!ptrTmp->getParameter("initial_joint_position", jointsPosition))
+    {
+        BipedalLocomotion::log()->error("{} Unable to find the initial joint position.", logPrefix);
+        return false;
+    }
+
+    if (jointsPosition.size() != m_jointsList.size())
+    {
+        BipedalLocomotion::log()->error("{} The size of the initial joint position is different "
+                                        "from the size of the joint list.",
+                                        logPrefix);
+        return false;
+    }
+
+    std::vector<std::string> jointsToRemove{};
+    if (!ptrTmp->getParameter("joints_to_be_removed", jointsToRemove))
+    {
+        BipedalLocomotion::log()->info("{} No joints to be removed from the joint list.",
+                                       logPrefix);
+    }
+
+    // get the positions of the joints to be removed
+    Eigen::VectorXd removedJointsPosition(jointsToRemove.size());
+    int counterRemove{0};
+    for (size_t i{}; i < m_jointsList.size(); i++)
+    {
+        // check if joint is not among the joint to remove
+        if (std::find(jointsToRemove.begin(), jointsToRemove.end(), m_jointsList[i])
+            != jointsToRemove.end())
+        {
+            removedJointsPosition[counterRemove] = jointsPosition[i];
+            counterRemove++;
+        }
+    }
+
+    // remove the joints from the joint list keeping the order
+    for (const auto& joint : jointsToRemove)
+    {
+        m_jointsList.erase(std::remove(m_jointsList.begin(), m_jointsList.end(), joint),
+                           m_jointsList.end());
+    }
+
+    if (removedJointsPosition.size() != jointsToRemove.size())
+    {
+        BipedalLocomotion::log()->error("{} The size of the position of the joints to be removed "
+                                        "is different from the size of the joints to be removed.",
+                                        logPrefix);
+        return false;
+    }
+
+    // assemble the m_removedJointsMap
+    for (std::size_t i = 0; i < jointsToRemove.size(); i++)
+    {
+        m_removedJointsMap[jointsToRemove[i]] = removedJointsPosition[i];
+    }
+
     if (!this->createKinDyn(yarp::os::ResourceFinder::getResourceFinderSingleton().findFileByName(
                                 "model.urdf"),
-                            m_jointsList))
+                            m_jointsList,
+                            m_removedJointsMap))
     {
         BipedalLocomotion::log()->error("{} Unable to initialize the kinDyn.", logPrefix);
         return false;
@@ -1288,10 +1345,10 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
     }
 
     // TODO remvoe me if the neck is working
-    // m_currentJointPos.head<15>() = m_currentJointPosWithoutNeck.head<15>();
-    // m_currentJointPos.tail<8>() = m_currentJointPosWithoutNeck.tail<8>();
+    m_currentJointPos.head<12>() = m_currentJointPosWithoutNeck.head<12>();
+    m_currentJointPos.tail<13>() = m_currentJointPosWithoutNeck.tail<13>();
 
-    m_currentJointPos = m_currentJointPosWithoutNeck;
+    // m_currentJointPos = m_currentJointPosWithoutNeck;
 
     m_desJointPos = m_currentJointPos;
 
@@ -1330,7 +1387,6 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
 
     Eigen::MatrixXd B = Eigen::MatrixXd::Zero(2 * m_jointsList.size(), m_jointsList.size());
     B.bottomLeftCorner(m_jointsList.size(), m_jointsList.size()).setIdentity();
-
 
     m_centroidalSystem.dynamics = std::make_shared<CentroidalDynamics>();
     m_centroidalSystem.integrator = std::make_shared<RK4<CentroidalDynamics>>();
@@ -1530,11 +1586,9 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
     m_rightFootPlanner.setTime(m_absoluteTime);
 
     // switch the control mode to position direct mode
-    if (!m_robotControl.setControlMode(
-            BipedalLocomotion::RobotInterface::IRobotControl::ControlMode::PositionDirect))
+    if (!m_robotControl.setControlMode(BipedalLocomotion::RobotInterface::IRobotControl::ControlMode::PositionDirect))
     {
-        BipedalLocomotion::log()->error("{} Unable to switch the control mode to position direct.",
-                                        logPrefix);
+        BipedalLocomotion::log()->error("{} Unable to switch the control mode to position direct.", logPrefix) ;
         return false;
     }
 
@@ -1789,15 +1843,14 @@ bool WholeBodyQPBlock::advance()
     }
 
     // TODO remove me if the neck is working
-    // m_currentJointPos.head<15>() = m_currentJointPosWithoutNeck.head<15>();
-    // m_currentJointPos.tail<8>() = m_currentJointPosWithoutNeck.tail<8>();
+    m_currentJointPos.head<12>() = m_currentJointPosWithoutNeck.head<12>();
+    m_currentJointPos.tail<13>() = m_currentJointPosWithoutNeck.tail<13>();
 
-    // m_currentJointVel.head<15>() = m_currentJointVelWithoutNeck.head<15>();
-    // m_currentJointVel.tail<8>() = m_currentJointVelWithoutNeck.tail<8>();
+    m_currentJointVel.head<12>() = m_currentJointVelWithoutNeck.head<12>();
+    m_currentJointVel.tail<13>() = m_currentJointVelWithoutNeck.tail<13>();
 
-    m_currentJointPos = m_currentJointPosWithoutNeck;
-    m_currentJointVel = m_currentJointVelWithoutNeck;
-
+    // m_currentJointPos = m_currentJointPosWithoutNeck;
+    // m_currentJointVel = m_currentJointVelWithoutNeck;
 
     // get the cartesian wrenches associated to the left foot
     for (auto& [key, value] : m_leftFootContacWrenches)
@@ -1899,6 +1952,7 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
+    // BipedalLocomotion::log()->info("{} m_currentJointPos size is {}.", errorPrefix, m_currentJointPos.size());
     /////// update kinDyn
     if (!m_kinDynWithMeasured->setRobotState(m_useIMUBaseEstimatorForKindynMeasured
                                                  ? m_baseTransformWithIMU.transform()
@@ -1917,6 +1971,8 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
+    // BipedalLocomotion::log()->info("{} m_desJointPos size is {}.", errorPrefix, m_desJointPos.size());
+
     if (!m_kinDynWithDesired->setRobotState(m_useIMUBaseEstimatorForKindynDesired
                                                 ? m_baseTransformWithIMU.transform()
                                                 : m_baseTransform.transform(),
@@ -1934,6 +1990,9 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
+    // BipedalLocomotion::log()->info("{} m_desJointVel size is {}.", errorPrefix, m_desJointVel.size());
+
+
     if (!m_kinDynJointsDesiredBaseMeasured
              ->setRobotState(m_baseTransformWithIMU.transform(),
                              m_desJointPos,
@@ -1949,7 +2008,6 @@ bool WholeBodyQPBlock::advance()
                                         errorPrefix);
         return false;
     }
-
 
     if (m_firstIteration)
     {
@@ -1984,6 +2042,8 @@ bool WholeBodyQPBlock::advance()
     if (m_firstIteration)
     {
         m_jointPosRegularize = m_currentJointPos;
+        // BipedalLocomotion::log()->info("{} First itr m_jointPosRegularize size is {}.", errorPrefix, m_jointPosRegularize.size());
+
     }
     // TODO REMOVE ME IF THE NECK WORKS
     // m_jointPosRegularize[15] = 0.0;
@@ -1991,7 +2051,13 @@ bool WholeBodyQPBlock::advance()
     // m_jointPosRegularize[17] = 0.0;
     // m_jointPosRegularize.tail<14>() = m_input.regularizedJoints.tail<14>();
 
-    m_jointPosRegularize = m_input.regularizedJoints;
+    // m_jointPosRegularize = m_input.regularizedJoints;
+
+    m_jointPosRegularize.head<12>() = m_input.regularizedJoints.head<12>();
+    m_jointPosRegularize.tail<13>() = m_input.regularizedJoints.tail<13>();
+
+    // BipedalLocomotion::log()->info("{} m_jointPosRegularize size is {}.", errorPrefix, m_jointPosRegularize.size());
+
 
     if (!m_kinDynWithRegularization->setRobotState(m_baseTransform.transform(),
                                                    m_jointPosRegularize,
@@ -2531,7 +2597,8 @@ bool WholeBodyQPBlock::advance()
 
     m_desJointPosForRobot = m_desJointPos;
 
-    const auto controlMode = BipedalLocomotion::RobotInterface::IRobotControl::ControlMode::PositionDirect;
+    const auto controlMode
+        = BipedalLocomotion::RobotInterface::IRobotControl::ControlMode::PositionDirect;
     if (!m_robotControl.setReferences(m_desJointPosForRobot,
                                       controlMode,
                                       m_currentJointPosWithoutNeck))
