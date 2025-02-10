@@ -477,13 +477,16 @@ bool WholeBodyQPBlock::instantiateIK(std::weak_ptr<const IParametersHandler> han
     constexpr auto logPrefix = "[WholeBodyQPBlock::instantiateIK]";
 
     auto getWeightProvider
-        = [this, logPrefix](const std::string& taskName, auto& weightProvider) -> bool {
-        auto it = m_IKandTasks.ikProblem.weights.find(taskName);
-        if (it == m_IKandTasks.ikProblem.weights.end())
+        = [this, logPrefix](const std::string& taskName, auto& weightProvider, bool useInterceptionIK = false) -> bool {
+        auto& ikTasks = useInterceptionIK ? m_interceptionIKandTasks : m_IKandTasks; // Select the correct struct
+
+        auto it = ikTasks.ikProblem.weights.find(taskName);
+        if (it == ikTasks.ikProblem.weights.end())
         {
-            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {}.",
+            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {} for {}.",
                                             logPrefix,
-                                            taskName);
+                                            taskName,
+                                            useInterceptionIK ? "Interception IK" : "Regular IK");
             return false;
         }
 
@@ -491,9 +494,10 @@ bool WholeBodyQPBlock::instantiateIK(std::weak_ptr<const IParametersHandler> han
 
         if (ptr == nullptr)
         {
-            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {}.",
+            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {} for {}.",
                                             logPrefix,
-                                            taskName);
+                                            taskName,
+                                            useInterceptionIK ? "Interception IK" : "Regular IK");
             return false;
         }
 
@@ -504,21 +508,25 @@ bool WholeBodyQPBlock::instantiateIK(std::weak_ptr<const IParametersHandler> han
         if (weightProvider == nullptr)
         {
             BipedalLocomotion::log()->error("{} Unable to cast the weight provider named {} to "
-                                            "the expected type.",
+                                            "the expected type for {}.",
                                             logPrefix,
-                                            taskName);
+                                            taskName,
+                                            useInterceptionIK ? "Interception IK" : "Regular IK");
             return false;
         }
         return true;
     };
 
-    auto getTask = [this, logPrefix](const std::string& taskName, auto& task) -> bool {
-        auto ptr = m_IKandTasks.ikProblem.ik->getTask(taskName).lock();
+    auto getTask = [this, logPrefix](const std::string& taskName, auto& task, bool useInterceptionIK = false) -> bool {
+        auto& ikTasks = useInterceptionIK ? m_interceptionIKandTasks : m_IKandTasks; // Select the correct struct
+
+        auto ptr = ikTasks.ikProblem.ik->getTask(taskName).lock();
         if (ptr == nullptr)
         {
-            BipedalLocomotion::log()->error("{} Unable to get the task named {}.",
+            BipedalLocomotion::log()->error("{} Unable to get the task named {} for {}.",
                                             logPrefix,
-                                            taskName);
+                                            taskName,
+                                            useInterceptionIK ? "Interception IK" : "Regular IK");
             return false;
         }
 
@@ -528,62 +536,110 @@ bool WholeBodyQPBlock::instantiateIK(std::weak_ptr<const IParametersHandler> han
         if (task == nullptr)
         {
             BipedalLocomotion::log()->error("{} Unable to cast the task named {} to the expected "
-                                            "type.",
+                                            "type for {}.",
                                             logPrefix,
-                                            taskName);
+                                            taskName,
+                                            useInterceptionIK ? "Interception IK" : "Regular IK");
             return false;
         }
 
         return true;
     };
 
+    // Instantiate the regular IK problem
     m_IKandTasks.ikProblem
         = BipedalLocomotion::IK::QPInverseKinematics::build(handler, m_kinDynWithDesired);
     if (!m_IKandTasks.ikProblem.isValid())
     {
-        BipedalLocomotion::log()->error("{} Unable to initialize the IK.", logPrefix);
+        BipedalLocomotion::log()->error("{} Unable to initialize the regular IK.", logPrefix);
         return false;
     }
-
     BipedalLocomotion::log()->info("{}", m_IKandTasks.ikProblem.ik->toString());
 
-    // attempt to get the joint limits task
-    if (!getTask("JOINT_LIMITS_TASK", m_IKandTasks.jointLimitsTask))
+    // Instantiate the interception IK problem (if enabled)
+    if (m_useInterception)
     {
-        BipedalLocomotion::log()->info("{} Unable to get the joint limits task.", logPrefix);
+        m_interceptionIKandTasks.ikProblem
+            = BipedalLocomotion::IK::QPInverseKinematics::build(handler, m_kinDynWithDesired);
+        if (!m_interceptionIKandTasks.ikProblem.isValid())
+        {
+            BipedalLocomotion::log()->error("{} Unable to initialize the interception IK.",
+                                            logPrefix);
+            return false;
+        }
+        BipedalLocomotion::log()->info("{}", m_interceptionIKandTasks.ikProblem.ik->toString());
     }
 
-    if (!getTask("ANGULAR_MOMENTUM_TASK", m_IKandTasks.angularMomentumTask))
-    {
-        BipedalLocomotion::log()->info("{} Unable to get the angular momentum task.", logPrefix);
+    // Helper function to instantiate tasks and weight providers for both IK problems
+    auto instantiateTasksAndWeights = [this, &getTask, &getWeightProvider, logPrefix](bool useInterceptionIK) {
+        auto& ikTasks = useInterceptionIK ? m_interceptionIKandTasks : m_IKandTasks;
+
+        //Joint limits
+        if (!getTask("JOINT_LIMITS_TASK", ikTasks.jointLimitsTask, useInterceptionIK))
+        {
+            BipedalLocomotion::log()->info("{} Unable to get the joint limits task for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
+        }
+
+        //Angular momentum
+        if (!getTask("ANGULAR_MOMENTUM_TASK", ikTasks.angularMomentumTask, useInterceptionIK))
+        {
+            BipedalLocomotion::log()->info("{} Unable to get the angular momentum task for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
+        }
+
+        //Foot weights
+        if (!getWeightProvider("LEFT_FOOT", ikTasks.leftFootWeight, useInterceptionIK))
+        {
+            BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the left foot for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
+        }
+
+        if (!getWeightProvider("RIGHT_FOOT", ikTasks.rightFootWeight, useInterceptionIK))
+        {
+            BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the right foot for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
+        }
+
+        //Joint regularization
+        if (!getWeightProvider("JOINT_REGULARIZATION", ikTasks.jointRegularizationWeight, useInterceptionIK))
+        {
+            BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the joint regularization for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
+        }
+
+        bool success = getTask("LEFT_FOOT", ikTasks.leftFootTask, useInterceptionIK)
+                      && getTask("RIGHT_FOOT", ikTasks.rightFootTask, useInterceptionIK)
+                      && getTask("COM", ikTasks.comTask, useInterceptionIK)
+                      && getTask("CHEST", ikTasks.chestTask, useInterceptionIK)
+                      && getTask("JOINT_REGULARIZATION", ikTasks.regularizationTask, useInterceptionIK)
+                      && getTask("ROOT_TASK", ikTasks.rootTask, useInterceptionIK)
+                      && getTask("BASE_TASK", ikTasks.baseTask, useInterceptionIK);
+
+        return success;
+    };
+
+    // Instantiate tasks and weight providers for both IK problems
+    bool regularIKSuccess = instantiateTasksAndWeights(false); // false = regular IK
+    bool interceptionIKSuccess = true;
+
+    // only instantiate if interception is active, otherwise will fail since it depends on hands
+    if (m_useInterception) {
+        if (!getTask("LEFT_HAND", m_interceptionIKandTasks.leftHandTask, true))
+        {
+            BipedalLocomotion::log()->info("{} Unable to get the LEFT_HAND task for interception.", logPrefix);
+        }
+        if (!getTask("RIGHT_HAND", m_interceptionIKandTasks.rightHandTask, true))
+        {
+            BipedalLocomotion::log()->info("{} Unable to get the RIGHT_HAND task for interception.", logPrefix);
+        }
+        if (!getWeightProvider("LEFT_HAND", m_interceptionIKandTasks.leftHandWeight, true))
+        {
+            BipedalLocomotion::log()->info("{} Unable to get the LEFT_HAND weight provider for interception.", logPrefix);
+        }
+        if (!getWeightProvider("RIGHT_HAND", m_interceptionIKandTasks.rightHandWeight, true))
+        {
+            BipedalLocomotion::log()->info("{} Unable to get the RIGHT_HAND weight provider for interception.", logPrefix);
+        }
+        interceptionIKSuccess = instantiateTasksAndWeights(true);
     }
 
-    // get the weight provider for the feet tasks and the joint regularization task
-    if (!getWeightProvider("LEFT_FOOT", m_IKandTasks.leftFootWeight))
-    {
-        BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the left foot.",
-                                       logPrefix);
-    }
-
-    if (!getWeightProvider("RIGHT_FOOT", m_IKandTasks.rightFootWeight))
-    {
-        BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the right foot.",
-                                       logPrefix);
-    }
-
-    if (!getWeightProvider("JOINT_REGULARIZATION", m_IKandTasks.jointRegularizationWeight))
-    {
-        BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the COM.",
-                                       logPrefix);
-    }
-
-    return getTask("LEFT_FOOT", m_IKandTasks.leftFootTask)
-           && getTask("RIGHT_FOOT", m_IKandTasks.rightFootTask)
-           && getTask("COM", m_IKandTasks.comTask) //
-           && getTask("CHEST", m_IKandTasks.chestTask)
-           && getTask("JOINT_REGULARIZATION", m_IKandTasks.regularizationTask)
-           && getTask("ROOT_TASK", m_IKandTasks.rootTask)
-           && getTask("BASE_TASK", m_IKandTasks.baseTask);
+    return regularIKSuccess && interceptionIKSuccess;
 }
 
 bool WholeBodyQPBlock::initializeRobotControl(std::shared_ptr<const IParametersHandler> handler)
@@ -1056,6 +1112,12 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
         return false;
     }
 
+    // m_enableInterception
+    if (!parametersHandler->getParameter("enable_interception", m_enableInterception))
+    {
+        BipedalLocomotion::log()->error("{} Unable to find the enable_interception.", logPrefix);
+        return false;
+    }
 
     BipedalLocomotion::log()->info("mpc acts as planner: {}", m_mpcActsAsPlanner);
     BipedalLocomotion::log()->info("filter joint velocity: {}", m_filterJointVel);
@@ -1076,6 +1138,8 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
     BipedalLocomotion::log()->info("enable com zmp controller: {}", m_enableCoMZMPController);
     BipedalLocomotion::log()->info("use measured base velocity for ik: {}",
                                    m_useMeasuredBaseVelocityForIK);
+    BipedalLocomotion::log()->info("enable interception: {}", m_enableInterception);
+
 
     m_flags.push_back(m_mpcActsAsPlanner ? 1 : 0);
     m_flags.push_back(m_filterJointVel ? 1 : 0);
@@ -1089,6 +1153,7 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
     m_flags.push_back(m_useLocalAdjustmentJointAnkles ? 1 : 0);
     m_flags.push_back(m_enableCoMZMPController ? 1 : 0);
     m_flags.push_back(m_useMeasuredBaseVelocityForIK ? 1 : 0);
+    m_flags.push_back(m_enableInterception ? 1 : 0);
 
     auto wholeBodyRunnerHandler = parametersHandler->getGroup("WHOLE_BODY_RUNNER").lock();
     if (wholeBodyRunnerHandler == nullptr)
@@ -1218,6 +1283,21 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
     {
         BipedalLocomotion::log()->error("{} Unable to initialize the base task.", logPrefix);
         return false;
+    }
+
+    if (m_useInterception)
+    {
+        if (!this->instantiateIK(parametersHandler->getGroup("INTERCEPTION_IK")))
+        {
+            BipedalLocomotion::log()->error("{} Unable to initialize the interception IK.", logPrefix);
+            return false;
+        }
+
+        if (!m_interceptionIKandTasks.baseTask->setSetPoint(manif::SE3d::Identity()))
+        {
+            BipedalLocomotion::log()->error("{} Unable to initialize the base task.", logPrefix);
+            return false;
+        }
     }
 
     if (!this->instantiateLeggedOdometry(parametersHandler,
@@ -2094,22 +2174,53 @@ bool WholeBodyQPBlock::advance()
         }
 
         // TODO this can be provided by MANN
-        if (!m_IKandTasks.regularizationTask->setSetPoint(m_currentJointPos))
+        if (!m_useInterception)
         {
-            BipedalLocomotion::log()->error("{} Unable to set the set point for the "
-                                            "regularization task.",
-                                            errorPrefix);
-            return false;
-        }
-
-        if (m_IKandTasks.angularMomentumTask != nullptr)
-        {
-            if (!m_IKandTasks.angularMomentumTask->setSetPoint(Eigen::Vector3d::Zero()))
+            if (!m_IKandTasks.regularizationTask->setSetPoint(m_currentJointPos))
             {
-                BipedalLocomotion::log()->error("{} Unable to initialize the angular momentum "
-                                                "task.",
+                BipedalLocomotion::log()->error("{} Unable to set the set point for the "
+                                                "regularization task.",
                                                 errorPrefix);
                 return false;
+            }
+
+            if (m_IKandTasks.angularMomentumTask != nullptr)
+            {
+                if (!m_IKandTasks.angularMomentumTask->setSetPoint(Eigen::Vector3d::Zero()))
+                {
+                    BipedalLocomotion::log()->error("{} Unable to initialize the angular momentum "
+                                                    "task.",
+                                                    errorPrefix);
+                    return false;
+                }
+            }
+        } else
+        {
+            if (!m_interceptionIKandTasks.leftHandTask->setSetPoint(m_leftTargetPose))
+            {
+                BipedalLocomotion::log()->error("{} Unable to set the set point for the "
+                                                "left hand task.",
+                                                errorPrefix);
+                return false;
+            }
+
+            if (!m_interceptionIKandTasks.rightHandTask->setSetPoint(m_rightTargetPose))
+            {
+                BipedalLocomotion::log()->error("{} Unable to set the set point for the "
+                                                "right hand task.",
+                                                errorPrefix);
+                return false;
+            }
+
+            if (m_interceptionIKandTasks.angularMomentumTask != nullptr)
+            {
+                if (!m_interceptionIKandTasks.angularMomentumTask->setSetPoint(Eigen::Vector3d::Zero()))
+                {
+                    BipedalLocomotion::log()->error("{} Unable to initialize the angular momentum "
+                                                    "task.",
+                                                    errorPrefix);
+                    return false;
+                }
             }
         }
 
@@ -2218,6 +2329,14 @@ bool WholeBodyQPBlock::advance()
                 BipedalLocomotion::log()->error("{} Unable to set the state ds ", errorPrefix);
                 return false;
             }
+
+            if (!setState(m_InterceptionIKandTasks.leftHandWeight, "ds")
+                || !setState(m_InterceptionIKandTasks.rightHandWeight, "ds")
+                || !setState(m_InterceptionIKandTasks.jointRegularizationWeight, "ds"))
+            {
+                BipedalLocomotion::log()->error("{} Unable to set the state ds ", errorPrefix);
+                return false;
+            }
         } else if (m_leftFootPlanner.getOutput().isInContact)
         {
             if (!setState(m_IKandTasks.leftFootWeight, "ss_left")
@@ -2228,6 +2347,16 @@ bool WholeBodyQPBlock::advance()
                                                 errorPrefix);
                 return false;
             }
+
+            if (!setState(m_InterceptionIKandTasks.leftHandWeight, "ss_left")
+                || !setState(m_InterceptionIKandTasks.rightHandWeight, "ss_left")
+                || !setState(m_InterceptionIKandTasks.jointRegularizationWeight, "ss_left"))
+            {
+                BipedalLocomotion::log()->error("{} Unable to set the state for the ss_left ",
+                                                errorPrefix);
+                return false;
+            }
+
         } else if (m_rightFootPlanner.getOutput().isInContact)
         {
             if (!setState(m_IKandTasks.leftFootWeight, "ss_right")
@@ -2236,6 +2365,15 @@ bool WholeBodyQPBlock::advance()
             {
                 BipedalLocomotion::log()->error("{} Unable to set the state for the ss_right ",
 
+                                                errorPrefix);
+                return false;
+            }
+
+            if (!setState(m_InterceptionIKandTasks.leftHandWeight, "ss_right")
+                || !setState(m_InterceptionIKandTasks.rightHandWeight, "ss_right")
+                || !setState(m_InterceptionIKandTasks.jointRegularizationWeight, "ss_right"))
+            {
+                BipedalLocomotion::log()->error("{} Unable to set the state for the ss_right ",
                                                 errorPrefix);
                 return false;
             }
@@ -2298,12 +2436,24 @@ bool WholeBodyQPBlock::advance()
                 BipedalLocomotion::IK::SE3Task::Mode::Disable);
             m_IKandTasks.rightFootTask->setTaskControllerMode(
                 BipedalLocomotion::IK::SE3Task::Mode::Enable);
+
+            m_InterceptionIKandTasks.leftFootTask->setTaskControllerMode(
+                BipedalLocomotion::IK::SE3Task::Mode::Disable);
+            m_InterceptionIKandTasks.rightFootTask->setTaskControllerMode(
+                BipedalLocomotion::IK::SE3Task::Mode::Enable);
+
         } else if (fixedFrameName == "r_sole")
         {
             m_IKandTasks.leftFootTask->setTaskControllerMode(
                 BipedalLocomotion::IK::SE3Task::Mode::Enable);
             m_IKandTasks.rightFootTask->setTaskControllerMode(
                 BipedalLocomotion::IK::SE3Task::Mode::Disable);
+
+            m_InterceptionIKandTasks.leftFootTask->setTaskControllerMode(
+                BipedalLocomotion::IK::SE3Task::Mode::Enable);
+            m_InterceptionIKandTasks.rightFootTask->setTaskControllerMode(
+                BipedalLocomotion::IK::SE3Task::Mode::Disable);
+
         } else
         {
             BipedalLocomotion::log()->error("{} The fixed frame is not a foot.", errorPrefix);
@@ -2314,6 +2464,13 @@ bool WholeBodyQPBlock::advance()
     m_IKandTasks.leftFootTask->setFeedback(m_baseEstimatorFromFootIMU.getOutput().footPose_L);
     m_IKandTasks.rightFootTask->setFeedback(m_baseEstimatorFromFootIMU.getOutput().footPose_R);
     m_IKandTasks.comTask->setFeedback( //
+        iDynTree::toEigen(m_kinDynWithMeasured->getCenterOfMassPosition()));
+
+    m_InterceptionIKandTasks.leftFootTask->setFeedback(
+        m_baseEstimatorFromFootIMU.getOutput().footPose_L);
+    m_InterceptionIKandTasks.rightFootTask->setFeedback(
+        m_baseEstimatorFromFootIMU.getOutput().footPose_R);
+    m_InterceptionIKandTasks.comTask->setFeedback( //
         iDynTree::toEigen(m_kinDynWithMeasured->getCenterOfMassPosition()));
 
     // if (!m_leftFootPlanner.getOutput().mixedVelocity.coeffs().isZero())
@@ -2394,9 +2551,35 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
+    if (!m_InterceptionIKandTasks.leftHandTask->setSetPoint(m_leftTargetPose))
+    {
+        BipedalLocomotion::log()->error("{} Unable to set the set point for the left hand task.",
+                                        errorPrefix);
+        return false;
+    }
+
+    if (!m_InterceptionIKandTasks.rightHandTask->setSetPoint(m_rightTargetPose))
+    {
+        BipedalLocomotion::log()->error("{} Unable to set the set point for the right hand task.",
+                                        errorPrefix);
+        return false;
+    }
+
     if (m_IKandTasks.angularMomentumTask != nullptr)
     {
         if (!m_IKandTasks.angularMomentumTask->setSetPoint(angularMomentumDesired * m_robotMass))
+        {
+            BipedalLocomotion::log()->error("{} Unable to set the set point for the angular "
+                                            "momentum task.",
+                                            errorPrefix);
+            return false;
+        }
+    }
+
+    if (m_InterceptionIKandTasks.angularMomentumTask != nullptr)
+    {
+        if (!m_InterceptionIKandTasks.angularMomentumTask->setSetPoint(angularMomentumDesired
+                                                                      * m_robotMass))
         {
             BipedalLocomotion::log()->error("{} Unable to set the set point for the angular "
                                             "momentum task.",
@@ -2424,6 +2607,17 @@ bool WholeBodyQPBlock::advance()
                                             errorPrefix);
             return false;
         }
+
+        if (!m_InterceptionIKandTasks.baseTask->setSetPoint(
+                BipedalLocomotion::Conversions::toManifPose(
+                    m_kinDynWithMeasured->getWorldBaseTransform()),
+                BipedalLocomotion::Conversions::toManifTwist(
+                    m_kinDynWithMeasured->getBaseTwist())))
+        {
+            BipedalLocomotion::log()->error("{} Unable to set the set point for the base task.",
+                                            errorPrefix);
+            return false;
+        }
     }
 
     if (!m_IKandTasks.comTask->setSetPoint(comdes, dcomdes))
@@ -2433,8 +2627,22 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
+    if (!m_InterceptionIKandTasks.comTask->setSetPoint(comdes, dcomdes))
+    {
+        BipedalLocomotion::log()->error("{} Unable to set the set point for the CoM task.",
+                                        errorPrefix);
+        return false;
+    }
+
     Eigen::Vector3d rootlinkPos = comdes + m_rootLinkOffset;
     if (!m_IKandTasks.rootTask->setSetPoint(rootlinkPos, dcomdes))
+    {
+        BipedalLocomotion::log()->error("{} Unable to set the set point for the CoM task.",
+                                        errorPrefix);
+        return false;
+    }
+
+    if (!m_InterceptionIKandTasks.rootTask->setSetPoint(rootlinkPos, dcomdes))
     {
         BipedalLocomotion::log()->error("{} Unable to set the set point for the CoM task.",
                                         errorPrefix);
@@ -2457,6 +2665,22 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
+    if (!m_InterceptionIKandTasks.leftFootTask->setSetPoint(m_leftFootPlanner.getOutput().transform,
+                                                           m_leftFootPlanner.getOutput().mixedVelocity))
+    {
+        BipedalLocomotion::log()->error("{} Unable to set the set point for the left foot task.",
+                                        errorPrefix);
+        return false;
+    }
+
+    if (!m_InterceptionIKandTasks.rightFootTask->setSetPoint(m_rightFootPlanner.getOutput().transform,
+                                                            m_rightFootPlanner.getOutput().mixedVelocity))
+    {
+        BipedalLocomotion::log()->error("{} Unable to set the set point for the right foot task.",
+                                        errorPrefix);
+        return false;
+    }
+
     // to better stabilize the robot we add a task on the chest only for the yaw
     const double yaw = extactYawAngle(
         iDynTree::toEigen(m_kinDynWithRegularization->getWorldTransform("chest").getRotation()));
@@ -2469,14 +2693,32 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
-    // evaluate the IK problem
-    if (!m_IKandTasks.ikProblem.ik->advance())
+    // evaluate the IK problem (either the interception ik or the regular one)
+    Eigen::VectorXd tmpJointsVel;
+    if (!m_useInterception)
     {
-        BipedalLocomotion::log()->error("{} Unable to solve the IK problem", errorPrefix);
-        return false;
+        if (!m_IKandTasks.ikProblem.ik->advance())
+        {
+            BipedalLocomotion::log()->error("{} Unable to solve the IK problem", errorPrefix);
+            return false;
+        }
+        tmpJointsVel = m_IKandTasks.ikProblem.ik->getOutput().jointVelocity;
+    } else
+    {
+        if (!m_InterceptionIKandTasks.ikProblem.ik->advance())
+        {
+            BipedalLocomotion::log()->error("{} Unable to solve the IK problem", errorPrefix);
+            return false;
+        }
+        tmpJointsVel = m_InterceptionIKandTasks.ikProblem.ik->getOutput().jointVelocity;
     }
+    // if (!m_IKandTasks.ikProblem.ik->advance())
+    // {
+    //     BipedalLocomotion::log()->error("{} Unable to solve the IK problem", errorPrefix);
+    //     return false;
+    // }
 
-    Eigen::VectorXd tmpJointsVel = m_IKandTasks.ikProblem.ik->getOutput().jointVelocity;
+    // Eigen::VectorXd tmpJointsVel = m_IKandTasks.ikProblem.ik->getOutput().jointVelocity;
 
     if (m_useLocalAdjustmentJointAnkles)
     {
@@ -2503,7 +2745,14 @@ bool WholeBodyQPBlock::advance()
 
     const auto& [jointPosition] = m_floatingBaseSystem.integrator->getSolution();
     m_desJointPos = jointPosition;
-    m_desJointVel = m_IKandTasks.ikProblem.ik->getOutput().jointVelocity;
+    if (!m_useInterception)
+    {
+        m_desJointVel = m_IKandTasks.ikProblem.ik->getOutput().jointVelocity;
+    } else
+    {
+        m_desJointVel = m_InterceptionIKandTasks.ikProblem.ik->getOutput().jointVelocity;
+    }
+
 
     BipedalLocomotion::Math::Wrenchd leftWrench = BipedalLocomotion::Math::Wrenchd::Zero();
     BipedalLocomotion::Math::Wrenchd rightWrench = BipedalLocomotion::Math::Wrenchd::Zero();
@@ -2801,6 +3050,107 @@ bool WholeBodyQPBlock::advance()
     m_absoluteTime += m_dT;
 
     return true;
+}
+
+bool isInterceptionRequested (const manif::SE3d m_targetTransform, const manif::SE3d m_targetDesiredPose)
+{
+    // TODO: remove hardcoded stuff
+    const double position_tolerance = 0.05;  // meters, example value
+    const double orientation_tolerance = 0.1; // radians, example value (about 5.7 degrees)
+    const double interception_time_horizon = 0.5; // seconds, example value - how far ahead to look
+    const double robot_hand_reach = 0.3;  // meters, example: how far can the robot reach.
+
+    // --- Check if the target is near the desired pose ---
+    manif::SE3d error = m_targetDesiredPose.inverse() * m_targetTransform;
+    manif::SE3d::Tangent error_tangent = error.log(); // Get the error in tangent space
+
+    double position_error_magnitude = error_tangent.tail<3>().norm();  // Translation error
+    double orientation_error_magnitude = error_tangent.head<3>().norm(); // Rotation error
+
+    if (position_error_magnitude <= position_tolerance && orientation_error_magnitude <= orientation_tolerance) {
+        m_useInterception = false;
+        return false;
+    }
+
+
+    // --- Target is NOT near the desired pose.  Interception logic ---
+    m_useInterception = true;
+
+    // 1. Estimate target velocity (assuming constant velocity).  This is a CRITICAL step.
+    //    In a real system, you'd likely use a more robust velocity estimator
+    //    (e.g., a Kalman filter) that takes into account sensor noise and past measurements.
+    //    For this example, we'll assume a simple finite difference if we have a previous pose.
+    //    If you don't have a previous pose, you'll need to adapt this.
+
+    static manif::SE3d previous_target_transform = m_targetTransform; // Initialize with the current transform
+    static double previous_time = 0.0;      // Initialize time.  You NEED to track time externally!
+    double current_time = /* Get the current time from your system clock */;  // REPLACE THIS!  e.g.,  ros::Time::now().toSec();
+
+    manif::SE3d::Tangent target_velocity;  //  Velocity in the *target's* frame.
+    if (previous_time > 0.0 && current_time > previous_time) {
+        double dt = current_time - previous_time;
+        target_velocity = (m_targetTransform.inverse() * previous_target_transform).log() / dt; // Calculate twist
+    } else {
+         // Not enough information to estimate velocity.
+         //  Possible solutions:
+         //   -  Return false (don't intercept).
+         //   -  Assume zero velocity (not recommended unless the target *is* mostly static).
+         //   -  Use a default velocity (highly application-specific, use with extreme caution).
+         target_velocity.setZero(); // Assume zero velocity for this example, but this is NOT ideal.
+    }
+     // Store current transform and time for next iteration
+    previous_target_transform = m_targetTransform;
+    previous_time = current_time;
+
+
+
+    // 2. Predict future target pose.
+    manif::SE3d predicted_target_pose = m_targetTransform * manif::SE3d::exp(target_velocity * interception_time_horizon);
+
+    // 3.  Determine which hand (left/right) is closer to the predicted pose.
+    //     You'll need to know the current poses of your robot's hands.
+    //     I'm assuming you have variables m_leftHandPose and m_rightHandPose (of type manif::SE3d).
+    //     Replace these with your actual hand pose variables.
+
+    manif::SE3d m_leftHandPose; //  REPLACE with your actual left hand pose
+    manif::SE3d m_rightHandPose; // REPLACE with your actual right hand pose
+
+    // Calculate distances (considering both position and orientation)
+    // Simple distance calculation. A weighted combination of translation and rotation might be better.
+    double left_distance  = (m_leftHandPose.inverse() * predicted_target_pose).log().norm();
+    double right_distance = (m_rightHandPose.inverse() * predicted_target_pose).log().norm();
+
+
+    // 4. Calculate interception point.  This is a simplified example.
+    //    A more sophisticated approach might consider:
+    //    -  Joint limits and reachable workspace.
+    //    -  Robot kinematics and dynamics.
+    //    -  Obstacle avoidance.
+    //    -  A trajectory planner (e.g., RRT, PRM) to generate a feasible path to the interception point.
+
+     if (left_distance < right_distance) {
+        // Left hand is closer.
+        if (left_distance <= robot_hand_reach)
+            m_leftTargetPose = predicted_target_pose;
+            // Set right target to be same as current right hand position
+            m_rightTargetPose = m_rightHandPose;
+        else {
+              m_useInterception = false;
+              return false;
+        }
+    } else {
+        // Right hand is closer or equal
+         if (right_distance <= robot_hand_reach)
+             m_rightTargetPose = predicted_target_pose;
+             m_leftTargetPose = m_leftHandPose;
+         else{
+            m_useInterception = false;
+            return false;
+         }
+
+    }
+
+    return m_useInterception;
 }
 
 bool WholeBodyQPBlock::isOutputValid() const

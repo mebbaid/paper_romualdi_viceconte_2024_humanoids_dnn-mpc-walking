@@ -96,6 +96,7 @@ class WholeBodyQPBlock
     typename WholeBodyQPBlock::Input m_input;
     bool m_firstIteration{true};
     bool m_firstTorqueSet{true};
+    bool m_useInterception{false};
     double m_robotMass;
     /*     std::string m_robot; /**< Robot name. */
 
@@ -120,6 +121,15 @@ class WholeBodyQPBlock
     manif::SE3d::Tangent m_baseVelocity;
     manif::SE3d m_baseTransformWithIMU;
     manif::SE3d::Tangent m_baseVelocityWithIMU;
+
+    // interception
+    manif::SE3d m_targetTransform;
+    manif::SE3d m_targetDesiredPose;
+    manif::SE3d m_leftTargetPose;
+    manif::SE3d m_rightTargetPose;
+
+    double m_interception_time_horizon;
+
 
     BipedalLocomotion::RobotInterface::PolyDriverDescriptor m_controlBoard; /**< Control board
                                                                                remapper. */
@@ -178,6 +188,30 @@ class WholeBodyQPBlock
         std::shared_ptr<BipedalLocomotion::ContinuousDynamicalSystem::MultiStateWeightProvider> rightFootWeight;
     };
     IKProblemAndTask m_IKandTasks;
+
+
+    struct InterceptionIKProblem
+    {
+
+        BipedalLocomotion::IK::IntegrationBasedIKProblem ikProblem;
+        std::shared_ptr<BipedalLocomotion::IK::SE3Task> leftFootTask;
+        std::shared_ptr<BipedalLocomotion::IK::SE3Task> rightFootTask;
+        std::shared_ptr<BipedalLocomotion::IK::CoMTask> comTask;
+        std::shared_ptr<BipedalLocomotion::IK::SO3Task> chestTask;
+        std::shared_ptr<BipedalLocomotion::IK::R3Task> rootTask;
+        std::shared_ptr<BipedalLocomotion::IK::SO3Task> leftHandTask;
+        std::shared_ptr<BipedalLocomotion::IK::SO3Task> rightHandTask;
+        std::shared_ptr<BipedalLocomotion::IK::JointLimitsTask> jointLimitsTask;
+        std::shared_ptr<BipedalLocomotion::IK::SE3Task> baseTask;
+        std::shared_ptr<BipedalLocomotion::IK::AngularMomentumTask> angularMomentumTask;
+
+        // weights
+        std::shared_ptr<BipedalLocomotion::ContinuousDynamicalSystem::MultiStateWeightProvider> leftHandWeight;
+        std::shared_ptr<BipedalLocomotion::ContinuousDynamicalSystem::MultiStateWeightProvider> rightHandWeight;
+        std::shared_ptr<BipedalLocomotion::ContinuousDynamicalSystem::MultiStateWeightProvider> leftFootWeight;
+        std::shared_ptr<BipedalLocomotion::ContinuousDynamicalSystem::MultiStateWeightProvider> rightFootWeight;
+    };
+    InterceptionIKProblem m_interceptionIKandTasks;
 
 
     Eigen::Vector3d m_rootLinkOffset;
@@ -248,6 +282,8 @@ class WholeBodyQPBlock
 
     std::unordered_map<std::string, std::pair<const std::string, const manif::SE3d>>
         m_baseFrames; /**< Transform related to the base frame */
+
+    bool isInterceptionRequested (const manif::SE3d m_targetTransform, const manif::SE3d m_targetDesiredPose);
 
     bool setBaseFrame(const std::string& baseFrame,
                       const std::string& name,
@@ -321,6 +357,7 @@ class WholeBodyQPBlock
     bool m_enableCoMZMPController{false};
     bool m_disableBaseControlForSomeIKTasks{false};
     bool m_useMeasuredBaseVelocityForIK{false};
+    bool m_enableInterception{false};
 
     std::vector<double> m_flags;
 
