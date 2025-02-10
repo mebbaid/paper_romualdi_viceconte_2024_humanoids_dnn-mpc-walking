@@ -128,7 +128,6 @@ class WholeBodyQPBlock
     manif::SE3d m_leftTargetPose;
     manif::SE3d m_rightTargetPose;
 
-    double m_interception_time_horizon;
 
 
     BipedalLocomotion::RobotInterface::PolyDriverDescriptor m_controlBoard; /**< Control board

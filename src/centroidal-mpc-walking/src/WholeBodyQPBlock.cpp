@@ -3084,8 +3084,7 @@ bool isInterceptionRequested (const manif::SE3d m_targetTransform, const manif::
 
     static manif::SE3d previous_target_transform = m_targetTransform; // Initialize with the current transform
     static double previous_time = 0.0;      // Initialize time.  You NEED to track time externally!
-    double current_time = /* Get the current time from your system clock */;  // REPLACE THIS!  e.g.,  ros::Time::now().toSec();
-
+    double current_time = m_absoluteTime;
     manif::SE3d::Tangent target_velocity;  //  Velocity in the *target's* frame.
     if (previous_time > 0.0 && current_time > previous_time) {
         double dt = current_time - previous_time;
