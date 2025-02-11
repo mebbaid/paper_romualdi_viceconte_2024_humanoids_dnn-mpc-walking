@@ -50,6 +50,9 @@
 #include <CentroidalMPCWalking/CentroidalMPCBlock.h>
 #include <CentroidalMPCWalking/BaseEstimatorFromFootIMU.h>
 
+#include <yarp/os/BufferedPort.h>
+#include <yarp/sig/Vector.h>
+
 
 namespace CentroidalMPCWalking
 {
@@ -129,6 +132,12 @@ class WholeBodyQPBlock
     manif::SE3d m_rightTargetPose;
 
 
+    manif::SE3d m_leftHandPoseCurrent;
+    manif::SE3d m_rightHandPoseCurrent;
+
+    yarp::os::BufferedPort<yarp::sig::Vector> m_boxPosePort;
+
+
 
     BipedalLocomotion::RobotInterface::PolyDriverDescriptor m_controlBoard; /**< Control board
                                                                                remapper. */
@@ -198,8 +207,8 @@ class WholeBodyQPBlock
         std::shared_ptr<BipedalLocomotion::IK::CoMTask> comTask;
         std::shared_ptr<BipedalLocomotion::IK::SO3Task> chestTask;
         std::shared_ptr<BipedalLocomotion::IK::R3Task> rootTask;
-        std::shared_ptr<BipedalLocomotion::IK::SO3Task> leftHandTask;
-        std::shared_ptr<BipedalLocomotion::IK::SO3Task> rightHandTask;
+        std::shared_ptr<BipedalLocomotion::IK::SE3Task> leftHandTask;
+        std::shared_ptr<BipedalLocomotion::IK::SE3Task> rightHandTask;
         std::shared_ptr<BipedalLocomotion::IK::JointLimitsTask> jointLimitsTask;
         std::shared_ptr<BipedalLocomotion::IK::SE3Task> baseTask;
         std::shared_ptr<BipedalLocomotion::IK::AngularMomentumTask> angularMomentumTask;
@@ -247,6 +256,8 @@ class WholeBodyQPBlock
     std::chrono::nanoseconds m_dT;
     std::chrono::nanoseconds m_absoluteTime{std::chrono::nanoseconds::zero()};
 
+
+
     CentroidalMPCWalking::BaseEstimatorFromFootIMU m_baseEstimatorFromFootIMU;
 
     struct IMUOrientationData
@@ -282,7 +293,7 @@ class WholeBodyQPBlock
     std::unordered_map<std::string, std::pair<const std::string, const manif::SE3d>>
         m_baseFrames; /**< Transform related to the base frame */
 
-    bool isInterceptionRequested (const manif::SE3d m_targetTransform, const manif::SE3d m_targetDesiredPose);
+    bool isInterceptionRequested (const manif::SE3d targetTransform, const manif::SE3d targetDesiredPose);
 
     bool setBaseFrame(const std::string& baseFrame,
                       const std::string& name,
@@ -326,6 +337,7 @@ class WholeBodyQPBlock
                      Eigen::Ref<Eigen::Vector2d> localRight,
                      bool& isLocalLeftDefined,
                      bool& isLocalRightDefine);
+
 
     bool computeDesiredZMP(
         const std::map<std::string, BipedalLocomotion::Contacts::DiscreteGeometryContact>& contacts,

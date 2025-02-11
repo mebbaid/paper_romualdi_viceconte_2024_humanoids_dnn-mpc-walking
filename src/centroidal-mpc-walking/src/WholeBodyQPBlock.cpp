@@ -476,75 +476,113 @@ bool WholeBodyQPBlock::instantiateIK(std::weak_ptr<const IParametersHandler> han
 {
     constexpr auto logPrefix = "[WholeBodyQPBlock::instantiateIK]";
 
-    auto getWeightProvider
-        = [this, logPrefix](const std::string& taskName, auto& weightProvider, bool useInterceptionIK = false) -> bool {
-        auto& ikTasks = useInterceptionIK ? m_interceptionIKandTasks : m_IKandTasks; // Select the correct struct
+    // ==================== REGULAR IK LAMBDAS ====================
+    auto getWeightProviderIK
+        = [this, logPrefix](const std::string& taskName, auto& weightProvider) -> bool {
+        auto& ikTasks = m_IKandTasks;
 
         auto it = ikTasks.ikProblem.weights.find(taskName);
-        if (it == ikTasks.ikProblem.weights.end())
-        {
-            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {} for {}.",
+        if (it == ikTasks.ikProblem.weights.end()) {
+            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {} for Regular IK.",
                                             logPrefix,
-                                            taskName,
-                                            useInterceptionIK ? "Interception IK" : "Regular IK");
+                                            taskName);
             return false;
         }
 
         auto ptr = it->second;
-
-        if (ptr == nullptr)
-        {
-            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {} for {}.",
+        if (ptr == nullptr) {
+            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {} for Regular IK.",
                                             logPrefix,
-                                            taskName,
-                                            useInterceptionIK ? "Interception IK" : "Regular IK");
+                                            taskName);
             return false;
         }
 
-        // cast the weight provider
         weightProvider = std::dynamic_pointer_cast<
             typename std::remove_reference<decltype(weightProvider)>::type::element_type>(ptr);
-
-        if (weightProvider == nullptr)
-        {
-            BipedalLocomotion::log()->error("{} Unable to cast the weight provider named {} to "
-                                            "the expected type for {}.",
+        if (weightProvider == nullptr) {
+            BipedalLocomotion::log()->error("{} Unable to cast the weight provider named {} to the expected type for Regular IK.",
                                             logPrefix,
-                                            taskName,
-                                            useInterceptionIK ? "Interception IK" : "Regular IK");
+                                            taskName);
             return false;
         }
         return true;
     };
 
-    auto getTask = [this, logPrefix](const std::string& taskName, auto& task, bool useInterceptionIK = false) -> bool {
-        auto& ikTasks = useInterceptionIK ? m_interceptionIKandTasks : m_IKandTasks; // Select the correct struct
+    auto getTaskIK = [this, logPrefix](const std::string& taskName, auto& task) -> bool {
+        auto& ikTasks = m_IKandTasks;
 
         auto ptr = ikTasks.ikProblem.ik->getTask(taskName).lock();
-        if (ptr == nullptr)
-        {
-            BipedalLocomotion::log()->error("{} Unable to get the task named {} for {}.",
+        if (ptr == nullptr) {
+            BipedalLocomotion::log()->error("{} Unable to get the task named {} for Regular IK.",
                                             logPrefix,
-                                            taskName,
-                                            useInterceptionIK ? "Interception IK" : "Regular IK");
+                                            taskName);
             return false;
         }
 
-        // cast the task
-        task = std::dynamic_pointer_cast<
-            typename std::remove_reference<decltype(task)>::type::element_type>(ptr);
-        if (task == nullptr)
-        {
-            BipedalLocomotion::log()->error("{} Unable to cast the task named {} to the expected "
-                                            "type for {}.",
+        task = std::dynamic_pointer_cast<typename std::remove_reference<decltype(task)>::type::element_type>(ptr);
+        if (task == nullptr) {
+            BipedalLocomotion::log()->error("{} Unable to cast the task named {} to the expected type for Regular IK.",
                                             logPrefix,
-                                            taskName,
-                                            useInterceptionIK ? "Interception IK" : "Regular IK");
+                                            taskName);
             return false;
         }
-
         return true;
     };
+
+    // ==================== INTERCEPTION IK LAMBDAS ====================
+    auto getWeightProviderInterceptionIK
+        = [this, logPrefix](const std::string& taskName, auto& weightProvider) -> bool {
+        auto& ikTasks = m_interceptionIKandTasks;
+
+        auto it = ikTasks.ikProblem.weights.find(taskName);
+        if (it == ikTasks.ikProblem.weights.end()) {
+            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {} for Interception IK.",
+                                            logPrefix,
+                                            taskName);
+            return false;
+        }
+
+        auto ptr = it->second;
+        if (ptr == nullptr) {
+            BipedalLocomotion::log()->error("{} Unable to get the weight provider named {} for Interception IK.",
+                                            logPrefix,
+                                            taskName);
+            return false;
+        }
+
+        weightProvider = std::dynamic_pointer_cast<
+            typename std::remove_reference<decltype(weightProvider)>::type::element_type>(ptr);
+        if (weightProvider == nullptr) {
+            BipedalLocomotion::log()->error("{} Unable to cast the weight provider named {} to the expected type for Interception IK.",
+                                            logPrefix,
+                                            taskName);
+            return false;
+        }
+        return true;
+    };
+
+    auto getTaskInterceptionIK
+        = [this, logPrefix](const std::string& taskName, auto& task) -> bool {
+        auto& ikTasks = m_interceptionIKandTasks;
+
+        auto ptr = ikTasks.ikProblem.ik->getTask(taskName).lock();
+        if (ptr == nullptr) {
+            BipedalLocomotion::log()->error("{} Unable to get the task named {} for Interception IK.",
+                                            logPrefix,
+                                            taskName);
+            return false;
+        }
+
+        task = std::dynamic_pointer_cast<typename std::remove_reference<decltype(task)>::type::element_type>(ptr);
+        if (task == nullptr) {
+            BipedalLocomotion::log()->error("{} Unable to cast the task named {} to the expected type for Interception IK.",
+                                            logPrefix,
+                                            taskName);
+            return false;
+        }
+        return true;
+    };
+
 
     // Instantiate the regular IK problem
     m_IKandTasks.ikProblem
@@ -570,73 +608,120 @@ bool WholeBodyQPBlock::instantiateIK(std::weak_ptr<const IParametersHandler> han
         BipedalLocomotion::log()->info("{}", m_interceptionIKandTasks.ikProblem.ik->toString());
     }
 
-    // Helper function to instantiate tasks and weight providers for both IK problems
-    auto instantiateTasksAndWeights = [this, &getTask, &getWeightProvider, logPrefix](bool useInterceptionIK) {
-        auto& ikTasks = useInterceptionIK ? m_interceptionIKandTasks : m_IKandTasks;
 
-        //Joint limits
-        if (!getTask("JOINT_LIMITS_TASK", ikTasks.jointLimitsTask, useInterceptionIK))
-        {
-            BipedalLocomotion::log()->info("{} Unable to get the joint limits task for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
-        }
+    // ==================== REGULAR IK INSTANTIATION ====================
+    // Helper function to instantiate tasks for regular IK
+    auto instantiateTasksAndWeightsIK = [this, &getTaskIK, &getWeightProviderIK, logPrefix]() {
 
-        //Angular momentum
-        if (!getTask("ANGULAR_MOMENTUM_TASK", ikTasks.angularMomentumTask, useInterceptionIK))
-        {
-            BipedalLocomotion::log()->info("{} Unable to get the angular momentum task for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
-        }
+      auto& ikTasks = m_IKandTasks;
 
-        //Foot weights
-        if (!getWeightProvider("LEFT_FOOT", ikTasks.leftFootWeight, useInterceptionIK))
-        {
-            BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the left foot for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
-        }
+      //Joint limits
+      if (!getTaskIK("JOINT_LIMITS_TASK", ikTasks.jointLimitsTask))
+      {
+          BipedalLocomotion::log()->info("{} Unable to get the joint limits task for Regular IK.", logPrefix);
+      }
 
-        if (!getWeightProvider("RIGHT_FOOT", ikTasks.rightFootWeight, useInterceptionIK))
-        {
-            BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the right foot for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
-        }
+      //Angular momentum
+      if (!getTaskIK("ANGULAR_MOMENTUM_TASK", ikTasks.angularMomentumTask))
+      {
+          BipedalLocomotion::log()->info("{} Unable to get the angular momentum task for Regular IK.", logPrefix);
+      }
 
-        //Joint regularization
-        if (!getWeightProvider("JOINT_REGULARIZATION", ikTasks.jointRegularizationWeight, useInterceptionIK))
-        {
-            BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the joint regularization for {}.", logPrefix, useInterceptionIK ? "Interception IK" : "Regular IK");
-        }
+      //Foot weights
+      if (!getWeightProviderIK("LEFT_FOOT", ikTasks.leftFootWeight))
+      {
+          BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the left foot for Regular IK.", logPrefix);
+      }
 
-        bool success = getTask("LEFT_FOOT", ikTasks.leftFootTask, useInterceptionIK)
-                      && getTask("RIGHT_FOOT", ikTasks.rightFootTask, useInterceptionIK)
-                      && getTask("COM", ikTasks.comTask, useInterceptionIK)
-                      && getTask("CHEST", ikTasks.chestTask, useInterceptionIK)
-                      && getTask("JOINT_REGULARIZATION", ikTasks.regularizationTask, useInterceptionIK)
-                      && getTask("ROOT_TASK", ikTasks.rootTask, useInterceptionIK)
-                      && getTask("BASE_TASK", ikTasks.baseTask, useInterceptionIK);
+      if (!getWeightProviderIK("RIGHT_FOOT", ikTasks.rightFootWeight))
+      {
+          BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the right foot for Regular IK.", logPrefix);
+      }
 
-        return success;
+      //Joint regularization
+      if (!getWeightProviderIK("JOINT_REGULARIZATION", ikTasks.jointRegularizationWeight))
+      {
+          BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the joint regularization for Regular IK.", logPrefix);
+      }
+
+      bool success = getTaskIK("LEFT_FOOT", ikTasks.leftFootTask)
+                    && getTaskIK("RIGHT_FOOT", ikTasks.rightFootTask)
+                    && getTaskIK("COM", ikTasks.comTask)
+                    && getTaskIK("CHEST", ikTasks.chestTask)
+                    && getTaskIK("JOINT_REGULARIZATION", ikTasks.regularizationTask)
+                    && getTaskIK("ROOT_TASK", ikTasks.rootTask)
+                    && getTaskIK("BASE_TASK", ikTasks.baseTask);
+
+      return success;
     };
 
-    // Instantiate tasks and weight providers for both IK problems
-    bool regularIKSuccess = instantiateTasksAndWeights(false); // false = regular IK
+
+    // ==================== INTERCEPTION IK INSTANTIATION ====================
+    // Helper function to instantiate tasks for interception IK
+    auto instantiateTasksAndWeightsInterceptionIK = [this, &getTaskInterceptionIK, &getWeightProviderInterceptionIK, logPrefix]()
+    {
+      auto& ikTasks = m_interceptionIKandTasks;
+
+      //Joint limits
+      if (!getTaskInterceptionIK("JOINT_LIMITS_TASK", ikTasks.jointLimitsTask))
+      {
+          BipedalLocomotion::log()->info("{} Unable to get the joint limits task for Interception IK.", logPrefix);
+      }
+
+      //Angular momentum
+      if (!getTaskInterceptionIK("ANGULAR_MOMENTUM_TASK", ikTasks.angularMomentumTask))
+      {
+          BipedalLocomotion::log()->info("{} Unable to get the angular momentum task for Interception IK.", logPrefix);
+      }
+
+      //Foot weights
+      if (!getWeightProviderInterceptionIK("LEFT_FOOT", ikTasks.leftFootWeight))
+      {
+          BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the left foot for Interception IK.", logPrefix);
+      }
+
+      if (!getWeightProviderInterceptionIK("RIGHT_FOOT", ikTasks.rightFootWeight))
+      {
+          BipedalLocomotion::log()->warn("{} Unable to get the weight provider for the right foot for Interception IK.", logPrefix);
+      }
+
+
+      bool success = getTaskInterceptionIK("LEFT_FOOT", ikTasks.leftFootTask)
+                    && getTaskInterceptionIK("RIGHT_FOOT", ikTasks.rightFootTask)
+                    && getTaskInterceptionIK("COM", ikTasks.comTask)
+                    && getTaskInterceptionIK("CHEST", ikTasks.chestTask)
+                    && getTaskInterceptionIK("LEFT_HAND", ikTasks.leftHandTask)
+                    && getTaskInterceptionIK("RIGHT_HAND", ikTasks.rightHandTask)
+                    && getTaskInterceptionIK("ROOT_TASK", ikTasks.rootTask)
+                    && getTaskInterceptionIK("BASE_TASK", ikTasks.baseTask);
+
+      return success;
+    };
+
+    // Instantiate tasks and weight providers for regular IK problems
+    bool regularIKSuccess = instantiateTasksAndWeightsIK(); //  regular IK
     bool interceptionIKSuccess = true;
 
     // only instantiate if interception is active, otherwise will fail since it depends on hands
     if (m_useInterception) {
-        if (!getTask("LEFT_HAND", m_interceptionIKandTasks.leftHandTask, true))
+        if (!getTaskInterceptionIK("LEFT_HAND", m_interceptionIKandTasks.leftHandTask))
         {
             BipedalLocomotion::log()->info("{} Unable to get the LEFT_HAND task for interception.", logPrefix);
         }
-        if (!getTask("RIGHT_HAND", m_interceptionIKandTasks.rightHandTask, true))
+        if (!getTaskInterceptionIK("RIGHT_HAND", m_interceptionIKandTasks.rightHandTask))
         {
             BipedalLocomotion::log()->info("{} Unable to get the RIGHT_HAND task for interception.", logPrefix);
         }
-        if (!getWeightProvider("LEFT_HAND", m_interceptionIKandTasks.leftHandWeight, true))
+        if (!getWeightProviderInterceptionIK("LEFT_HAND", m_interceptionIKandTasks.leftHandWeight))
         {
             BipedalLocomotion::log()->info("{} Unable to get the LEFT_HAND weight provider for interception.", logPrefix);
         }
-        if (!getWeightProvider("RIGHT_HAND", m_interceptionIKandTasks.rightHandWeight, true))
+        if (!getWeightProviderInterceptionIK("RIGHT_HAND", m_interceptionIKandTasks.rightHandWeight))
         {
             BipedalLocomotion::log()->info("{} Unable to get the RIGHT_HAND weight provider for interception.", logPrefix);
         }
-        interceptionIKSuccess = instantiateTasksAndWeights(true);
+
+        interceptionIKSuccess = instantiateTasksAndWeightsInterceptionIK();
     }
 
     return regularIKSuccess && interceptionIKSuccess;
@@ -1609,6 +1694,45 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
     m_leftFootPlanner.setTime(m_absoluteTime);
     m_rightFootPlanner.setTime(m_absoluteTime);
 
+    // open m_boxPosePort for the box pose
+    if (!m_boxPosePort.open("/wholeBodyQPBlock/boxPose:i"))
+    {
+        BipedalLocomotion::log()->error("{} Unable to open the box pose port.", logPrefix);
+        return false;
+    }
+
+    // connect to the box pose port
+    if (!yarp::os::Network::connect("/aruco-pose-est/boxPose:o", m_boxPosePort.getName()))
+    {
+        BipedalLocomotion::log()->error("{} Unable to connect to the box pose port.", logPrefix);
+        return false;
+    }
+
+    // get first box pose as m_targetDesiredPose
+    yarp::sig::Vector* boxPose = m_boxPosePort.read(true);
+    if (boxPose == nullptr)
+    {
+        BipedalLocomotion::log()->error("{} Unable to read the box pose.", logPrefix);
+        return false;
+    }
+
+    // Use [] operator for yarp::sig::Vector
+    m_targetDesiredPose.translation().x() = (*boxPose)[0];
+    m_targetDesiredPose.translation().y() = (*boxPose)[1];
+    m_targetDesiredPose.translation().z() = (*boxPose)[2];
+
+    // Correct RPY to Rotation Matrix conversion using Eigen
+    Eigen::Vector3d rpy((*boxPose)[3], (*boxPose)[4], (*boxPose)[5]);
+    Eigen::AngleAxisd rollAngle(rpy(0), Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitchAngle(rpy(1), Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yawAngle(rpy(2), Eigen::Vector3d::UnitZ());
+
+    Eigen::Quaterniond q = yawAngle * pitchAngle * rollAngle;
+    m_targetDesiredPose.rotation() = q.matrix();
+
+    m_leftTargetPose = manif::SE3d::Identity();
+    m_rightTargetPose = manif::SE3d::Identity();
+
     // switch the control mode to position direct mode
     if (!m_robotControl.setControlMode(
             BipedalLocomotion::RobotInterface::IRobotControl::ControlMode::PositionDirect))
@@ -2087,6 +2211,35 @@ bool WholeBodyQPBlock::advance()
 
     m_output.totalExternalWrench.setZero();
 
+    // update m_rightHandPoseCurrent and m_leftHandPoseCurrent
+    auto tmp = m_kinDynWithMeasured->getWorldTransform("l_hand");
+    m_leftHandPoseCurrent.translation() = iDynTree::toEigen(tmp.getPosition());
+    m_leftHandPoseCurrent.rotation() = iDynTree::toEigen(tmp.getRotation());
+
+    tmp = m_kinDynWithMeasured->getWorldTransform("r_hand");
+    m_rightHandPoseCurrent.translation() = iDynTree::toEigen(tmp.getPosition());
+    m_rightHandPoseCurrent.rotation() = iDynTree::toEigen(tmp.getRotation());
+
+    // read the box pose from port
+    yarp::sig::Vector* boxPose = m_boxPosePort.read(false);
+    if (boxPose != nullptr)
+    {
+        m_targetTransform.translation().x() = (*boxPose)[0];
+        m_targetTransform.translation().y() = (*boxPose)[1];
+        m_targetTransform.translation().z() = (*boxPose)[2];
+
+        Eigen::Vector3d rpy((*boxPose)[3], (*boxPose)[4], (*boxPose)[5]);
+        Eigen::AngleAxisd rollAngle(rpy(0), Eigen::Vector3d::UnitX());
+        Eigen::AngleAxisd pitchAngle(rpy(1), Eigen::Vector3d::UnitY());
+        Eigen::AngleAxisd yawAngle(rpy(2), Eigen::Vector3d::UnitZ());
+
+        Eigen::Quaterniond q = yawAngle * pitchAngle * rollAngle;
+        m_targetTransform.rotation() = q.matrix();
+    }
+
+    m_useInterception = isInterceptionRequested(m_targetDesiredPose, m_targetTransform);
+
+
     // prepare the output for the MPC
     for (auto& [key, value] : m_externalContactWrenches)
     {
@@ -2330,9 +2483,8 @@ bool WholeBodyQPBlock::advance()
                 return false;
             }
 
-            if (!setState(m_InterceptionIKandTasks.leftHandWeight, "ds")
-                || !setState(m_InterceptionIKandTasks.rightHandWeight, "ds")
-                || !setState(m_InterceptionIKandTasks.jointRegularizationWeight, "ds"))
+            if (!setState(m_interceptionIKandTasks.leftHandWeight, "ds")
+                || !setState(m_interceptionIKandTasks.rightHandWeight, "ds"))
             {
                 BipedalLocomotion::log()->error("{} Unable to set the state ds ", errorPrefix);
                 return false;
@@ -2340,17 +2492,15 @@ bool WholeBodyQPBlock::advance()
         } else if (m_leftFootPlanner.getOutput().isInContact)
         {
             if (!setState(m_IKandTasks.leftFootWeight, "ss_left")
-                || !setState(m_IKandTasks.rightFootWeight, "ss_left")
-                || !setState(m_IKandTasks.jointRegularizationWeight, "ss_left"))
+                || !setState(m_IKandTasks.rightFootWeight, "ss_left"))
             {
                 BipedalLocomotion::log()->error("{} Unable to set the state for the foot weight ",
                                                 errorPrefix);
                 return false;
             }
 
-            if (!setState(m_InterceptionIKandTasks.leftHandWeight, "ss_left")
-                || !setState(m_InterceptionIKandTasks.rightHandWeight, "ss_left")
-                || !setState(m_InterceptionIKandTasks.jointRegularizationWeight, "ss_left"))
+            if (!setState(m_interceptionIKandTasks.leftHandWeight, "ss_left")
+                || !setState(m_interceptionIKandTasks.rightHandWeight, "ss_left"))
             {
                 BipedalLocomotion::log()->error("{} Unable to set the state for the ss_left ",
                                                 errorPrefix);
@@ -2369,10 +2519,8 @@ bool WholeBodyQPBlock::advance()
                 return false;
             }
 
-            if (!setState(m_InterceptionIKandTasks.leftHandWeight, "ss_right")
-                || !setState(m_InterceptionIKandTasks.rightHandWeight, "ss_right")
-                || !setState(m_InterceptionIKandTasks.jointRegularizationWeight, "ss_right"))
-            {
+            if (!setState(m_interceptionIKandTasks.leftHandWeight, "ss_right")
+                || !setState(m_interceptionIKandTasks.rightHandWeight, "ss_right"))            {
                 BipedalLocomotion::log()->error("{} Unable to set the state for the ss_right ",
                                                 errorPrefix);
                 return false;
@@ -2437,9 +2585,9 @@ bool WholeBodyQPBlock::advance()
             m_IKandTasks.rightFootTask->setTaskControllerMode(
                 BipedalLocomotion::IK::SE3Task::Mode::Enable);
 
-            m_InterceptionIKandTasks.leftFootTask->setTaskControllerMode(
+            m_interceptionIKandTasks.leftFootTask->setTaskControllerMode(
                 BipedalLocomotion::IK::SE3Task::Mode::Disable);
-            m_InterceptionIKandTasks.rightFootTask->setTaskControllerMode(
+            m_interceptionIKandTasks.rightFootTask->setTaskControllerMode(
                 BipedalLocomotion::IK::SE3Task::Mode::Enable);
 
         } else if (fixedFrameName == "r_sole")
@@ -2449,9 +2597,9 @@ bool WholeBodyQPBlock::advance()
             m_IKandTasks.rightFootTask->setTaskControllerMode(
                 BipedalLocomotion::IK::SE3Task::Mode::Disable);
 
-            m_InterceptionIKandTasks.leftFootTask->setTaskControllerMode(
+            m_interceptionIKandTasks.leftFootTask->setTaskControllerMode(
                 BipedalLocomotion::IK::SE3Task::Mode::Enable);
-            m_InterceptionIKandTasks.rightFootTask->setTaskControllerMode(
+            m_interceptionIKandTasks.rightFootTask->setTaskControllerMode(
                 BipedalLocomotion::IK::SE3Task::Mode::Disable);
 
         } else
@@ -2466,11 +2614,11 @@ bool WholeBodyQPBlock::advance()
     m_IKandTasks.comTask->setFeedback( //
         iDynTree::toEigen(m_kinDynWithMeasured->getCenterOfMassPosition()));
 
-    m_InterceptionIKandTasks.leftFootTask->setFeedback(
+    m_interceptionIKandTasks.leftFootTask->setFeedback(
         m_baseEstimatorFromFootIMU.getOutput().footPose_L);
-    m_InterceptionIKandTasks.rightFootTask->setFeedback(
+    m_interceptionIKandTasks.rightFootTask->setFeedback(
         m_baseEstimatorFromFootIMU.getOutput().footPose_R);
-    m_InterceptionIKandTasks.comTask->setFeedback( //
+    m_interceptionIKandTasks.comTask->setFeedback( //
         iDynTree::toEigen(m_kinDynWithMeasured->getCenterOfMassPosition()));
 
     // if (!m_leftFootPlanner.getOutput().mixedVelocity.coeffs().isZero())
@@ -2551,14 +2699,14 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
-    if (!m_InterceptionIKandTasks.leftHandTask->setSetPoint(m_leftTargetPose))
+    if (!m_interceptionIKandTasks.leftHandTask->setSetPoint(m_leftTargetPose))
     {
         BipedalLocomotion::log()->error("{} Unable to set the set point for the left hand task.",
                                         errorPrefix);
         return false;
     }
 
-    if (!m_InterceptionIKandTasks.rightHandTask->setSetPoint(m_rightTargetPose))
+    if (!m_interceptionIKandTasks.rightHandTask->setSetPoint(m_rightTargetPose))
     {
         BipedalLocomotion::log()->error("{} Unable to set the set point for the right hand task.",
                                         errorPrefix);
@@ -2576,9 +2724,9 @@ bool WholeBodyQPBlock::advance()
         }
     }
 
-    if (m_InterceptionIKandTasks.angularMomentumTask != nullptr)
+    if (m_interceptionIKandTasks.angularMomentumTask != nullptr)
     {
-        if (!m_InterceptionIKandTasks.angularMomentumTask->setSetPoint(angularMomentumDesired
+        if (!m_interceptionIKandTasks.angularMomentumTask->setSetPoint(angularMomentumDesired
                                                                       * m_robotMass))
         {
             BipedalLocomotion::log()->error("{} Unable to set the set point for the angular "
@@ -2608,7 +2756,7 @@ bool WholeBodyQPBlock::advance()
             return false;
         }
 
-        if (!m_InterceptionIKandTasks.baseTask->setSetPoint(
+        if (!m_interceptionIKandTasks.baseTask->setSetPoint(
                 BipedalLocomotion::Conversions::toManifPose(
                     m_kinDynWithMeasured->getWorldBaseTransform()),
                 BipedalLocomotion::Conversions::toManifTwist(
@@ -2627,7 +2775,7 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
-    if (!m_InterceptionIKandTasks.comTask->setSetPoint(comdes, dcomdes))
+    if (!m_interceptionIKandTasks.comTask->setSetPoint(comdes, dcomdes))
     {
         BipedalLocomotion::log()->error("{} Unable to set the set point for the CoM task.",
                                         errorPrefix);
@@ -2642,7 +2790,7 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
-    if (!m_InterceptionIKandTasks.rootTask->setSetPoint(rootlinkPos, dcomdes))
+    if (!m_interceptionIKandTasks.rootTask->setSetPoint(rootlinkPos, dcomdes))
     {
         BipedalLocomotion::log()->error("{} Unable to set the set point for the CoM task.",
                                         errorPrefix);
@@ -2665,7 +2813,7 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
-    if (!m_InterceptionIKandTasks.leftFootTask->setSetPoint(m_leftFootPlanner.getOutput().transform,
+    if (!m_interceptionIKandTasks.leftFootTask->setSetPoint(m_leftFootPlanner.getOutput().transform,
                                                            m_leftFootPlanner.getOutput().mixedVelocity))
     {
         BipedalLocomotion::log()->error("{} Unable to set the set point for the left foot task.",
@@ -2673,7 +2821,7 @@ bool WholeBodyQPBlock::advance()
         return false;
     }
 
-    if (!m_InterceptionIKandTasks.rightFootTask->setSetPoint(m_rightFootPlanner.getOutput().transform,
+    if (!m_interceptionIKandTasks.rightFootTask->setSetPoint(m_rightFootPlanner.getOutput().transform,
                                                             m_rightFootPlanner.getOutput().mixedVelocity))
     {
         BipedalLocomotion::log()->error("{} Unable to set the set point for the right foot task.",
@@ -2705,12 +2853,12 @@ bool WholeBodyQPBlock::advance()
         tmpJointsVel = m_IKandTasks.ikProblem.ik->getOutput().jointVelocity;
     } else
     {
-        if (!m_InterceptionIKandTasks.ikProblem.ik->advance())
+        if (!m_interceptionIKandTasks.ikProblem.ik->advance())
         {
             BipedalLocomotion::log()->error("{} Unable to solve the IK problem", errorPrefix);
             return false;
         }
-        tmpJointsVel = m_InterceptionIKandTasks.ikProblem.ik->getOutput().jointVelocity;
+        tmpJointsVel = m_interceptionIKandTasks.ikProblem.ik->getOutput().jointVelocity;
     }
     // if (!m_IKandTasks.ikProblem.ik->advance())
     // {
@@ -2750,7 +2898,7 @@ bool WholeBodyQPBlock::advance()
         m_desJointVel = m_IKandTasks.ikProblem.ik->getOutput().jointVelocity;
     } else
     {
-        m_desJointVel = m_InterceptionIKandTasks.ikProblem.ik->getOutput().jointVelocity;
+        m_desJointVel = m_interceptionIKandTasks.ikProblem.ik->getOutput().jointVelocity;
     }
 
 
@@ -3052,104 +3200,81 @@ bool WholeBodyQPBlock::advance()
     return true;
 }
 
-bool isInterceptionRequested (const manif::SE3d m_targetTransform, const manif::SE3d m_targetDesiredPose)
-{
-    // TODO: remove hardcoded stuff
-    const double position_tolerance = 0.05;  // meters, example value
-    const double orientation_tolerance = 0.1; // radians, example value (about 5.7 degrees)
-    const double interception_time_horizon = 0.5; // seconds, example value - how far ahead to look
-    const double robot_hand_reach = 0.3;  // meters, example: how far can the robot reach.
 
-    // --- Check if the target is near the desired pose ---
-    manif::SE3d error = m_targetDesiredPose.inverse() * m_targetTransform;
-    manif::SE3d::Tangent error_tangent = error.log(); // Get the error in tangent space
+bool WholeBodyQPBlock::isInterceptionRequested(const manif::SE3d targetTransform,
+                                                const manif::SE3d targetDesiredPose) {
+  // TODO: remove hardcoded stuff
+  const double position_tolerance = 0.05;  // meters
+  const double orientation_tolerance = 0.1; // radians
+  const double interception_time_horizon = 0.5; // seconds
+  const double robot_hand_reach = 0.3;  // meters
 
-    double position_error_magnitude = error_tangent.tail<3>().norm();  // Translation error
-    double orientation_error_magnitude = error_tangent.head<3>().norm(); // Rotation error
+  // --- Check if the target is near the desired pose ---
+  manif::SE3d error = targetDesiredPose.inverse() * targetTransform;
+  manif::SE3d::Tangent error_tangent = error.log();
 
-    if (position_error_magnitude <= position_tolerance && orientation_error_magnitude <= orientation_tolerance) {
-        m_useInterception = false;
-        return false;
-    }
+  double position_error_magnitude = error_tangent.coeffs().tail<3>().norm();
+  double orientation_error_magnitude = error_tangent.coeffs().head<3>().norm();
+
+  if (position_error_magnitude <= position_tolerance &&
+      orientation_error_magnitude <= orientation_tolerance) {
+    m_useInterception = false;
+    return false;
+  }
+
+  m_useInterception = true;
+
+  // Use a static variable WITHIN the function.  This is important for
+  // statefulness.
+  static manif::SE3d previous_target_transform = targetTransform;
+
+  // Calculate the time difference in seconds.  CRUCIAL STEP!
+  double dT_seconds = std::chrono::duration<double>(m_dT).count();
+
+    // Check for zero or very small time steps to prevent division by zero
+  if (dT_seconds < 1e-6) { // Use a small tolerance
+      // Handle the case where dT is too small.  Options include:
+      // 1. Returning false (not intercepting)
+      // 2. Using the previous velocity (if available)
+      // 3. Throwing an exception (if this is truly an error condition)
+      // For this example, we'll return false.  Adjust as needed for your application.
+       std::cerr << "Warning: Very small or zero time step detected in isInterceptionRequested. Skipping velocity calculation." << std::endl;
+       return false;
+  }
+
+  // CORRECTED DIVISION: Divide by the scalar dT_seconds
+  manif::SE3d::Tangent target_velocity =
+      (targetTransform.inverse() * previous_target_transform).log() / dT_seconds;
+
+  previous_target_transform = targetTransform; // Update the previous transform.
+
+  // Corrected exponential map calculation:
+  manif::SE3d::Tangent scaled_velocity = target_velocity * interception_time_horizon;
+  manif::SE3d predicted_target_pose = targetTransform * scaled_velocity.exp();
+
+  double left_distance = (m_leftTargetPose.inverse() * predicted_target_pose).log().coeffs().norm();
+  double right_distance = (m_rightTargetPose.inverse() * predicted_target_pose).log().coeffs().norm();
 
 
-    // --- Target is NOT near the desired pose.  Interception logic ---
-    m_useInterception = true;
-
-    // 1. Estimate target velocity (assuming constant velocity).  This is a CRITICAL step.
-    //    In a real system, you'd likely use a more robust velocity estimator
-    //    (e.g., a Kalman filter) that takes into account sensor noise and past measurements.
-    //    For this example, we'll assume a simple finite difference if we have a previous pose.
-    //    If you don't have a previous pose, you'll need to adapt this.
-
-    static manif::SE3d previous_target_transform = m_targetTransform; // Initialize with the current transform
-    static double previous_time = 0.0;      // Initialize time.  You NEED to track time externally!
-    double current_time = m_absoluteTime;
-    manif::SE3d::Tangent target_velocity;  //  Velocity in the *target's* frame.
-    if (previous_time > 0.0 && current_time > previous_time) {
-        double dt = current_time - previous_time;
-        target_velocity = (m_targetTransform.inverse() * previous_target_transform).log() / dt; // Calculate twist
+  if (left_distance < right_distance) {
+    if (left_distance <= robot_hand_reach) {
+      m_leftTargetPose = predicted_target_pose;
+      m_rightTargetPose = m_rightHandPoseCurrent;
     } else {
-         // Not enough information to estimate velocity.
-         //  Possible solutions:
-         //   -  Return false (don't intercept).
-         //   -  Assume zero velocity (not recommended unless the target *is* mostly static).
-         //   -  Use a default velocity (highly application-specific, use with extreme caution).
-         target_velocity.setZero(); // Assume zero velocity for this example, but this is NOT ideal.
+      m_useInterception = false;
+      return false;
     }
-     // Store current transform and time for next iteration
-    previous_target_transform = m_targetTransform;
-    previous_time = current_time;
-
-
-
-    // 2. Predict future target pose.
-    manif::SE3d predicted_target_pose = m_targetTransform * manif::SE3d::exp(target_velocity * interception_time_horizon);
-
-    // 3.  Determine which hand (left/right) is closer to the predicted pose.
-    //     You'll need to know the current poses of your robot's hands.
-    //     I'm assuming you have variables m_leftHandPose and m_rightHandPose (of type manif::SE3d).
-    //     Replace these with your actual hand pose variables.
-
-    manif::SE3d m_leftHandPose; //  REPLACE with your actual left hand pose
-    manif::SE3d m_rightHandPose; // REPLACE with your actual right hand pose
-
-    // Calculate distances (considering both position and orientation)
-    // Simple distance calculation. A weighted combination of translation and rotation might be better.
-    double left_distance  = (m_leftHandPose.inverse() * predicted_target_pose).log().norm();
-    double right_distance = (m_rightHandPose.inverse() * predicted_target_pose).log().norm();
-
-
-    // 4. Calculate interception point.  This is a simplified example.
-    //    A more sophisticated approach might consider:
-    //    -  Joint limits and reachable workspace.
-    //    -  Robot kinematics and dynamics.
-    //    -  Obstacle avoidance.
-    //    -  A trajectory planner (e.g., RRT, PRM) to generate a feasible path to the interception point.
-
-     if (left_distance < right_distance) {
-        // Left hand is closer.
-        if (left_distance <= robot_hand_reach)
-            m_leftTargetPose = predicted_target_pose;
-            // Set right target to be same as current right hand position
-            m_rightTargetPose = m_rightHandPose;
-        else {
-              m_useInterception = false;
-              return false;
-        }
+  } else {
+    if (right_distance <= robot_hand_reach) {
+      m_rightTargetPose = predicted_target_pose;
+      m_leftTargetPose = m_leftHandPoseCurrent;
     } else {
-        // Right hand is closer or equal
-         if (right_distance <= robot_hand_reach)
-             m_rightTargetPose = predicted_target_pose;
-             m_leftTargetPose = m_leftHandPose;
-         else{
-            m_useInterception = false;
-            return false;
-         }
-
+      m_useInterception = false;
+      return false;
     }
+  }
 
-    return m_useInterception;
+  return m_useInterception;
 }
 
 bool WholeBodyQPBlock::isOutputValid() const
