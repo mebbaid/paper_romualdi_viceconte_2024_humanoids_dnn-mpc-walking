@@ -2212,11 +2212,11 @@ bool WholeBodyQPBlock::advance()
     m_output.totalExternalWrench.setZero();
 
     // update m_rightHandPoseCurrent and m_leftHandPoseCurrent
-    auto tmp = m_kinDynWithMeasured->getWorldTransform("l_hand");
+    auto tmp = m_kinDynWithMeasured->getWorldTransform("l_hand_palm");
     m_leftHandPoseCurrent.translation() = iDynTree::toEigen(tmp.getPosition());
     m_leftHandPoseCurrent.rotation() = iDynTree::toEigen(tmp.getRotation());
 
-    tmp = m_kinDynWithMeasured->getWorldTransform("r_hand");
+    tmp = m_kinDynWithMeasured->getWorldTransform("r_hand_palm");
     m_rightHandPoseCurrent.translation() = iDynTree::toEigen(tmp.getPosition());
     m_rightHandPoseCurrent.rotation() = iDynTree::toEigen(tmp.getRotation());
 
