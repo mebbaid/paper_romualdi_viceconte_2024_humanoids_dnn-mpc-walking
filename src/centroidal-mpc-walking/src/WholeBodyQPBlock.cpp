@@ -1295,6 +1295,13 @@ bool WholeBodyQPBlock::initialize(std::weak_ptr<const IParametersHandler> handle
 
     m_desJointPos = m_currentJointPos;
 
+    // initialize smooth 
+    smoother.jointsSmoother = std::make_unique<iCub::ctrl::minJerkTrajGen>(numberOfJoints,std::chrono::duration<double>(m_dT).count(), 1.0);
+    smoother.currentJointPos.resize(m_currentJointPos.size());
+    smoother.refJointPos.resize(m_currentJointPos.size());
+    smoother.yarpBuffer.resize(numberOfJoints);
+
+
     auto initializeDynamicalSystem
         = [logPrefix, this](auto& dynamicalSystem, const std::string& dynamicalSystemType) -> bool {
         if (!dynamicalSystem.integrator->setIntegrationStep(this->m_dT))
@@ -1839,8 +1846,8 @@ bool WholeBodyQPBlock::advance()
                                                                     rpyTemp))
                 {
                     BipedalLocomotion::log()->error("{} Unable to get the orientation sensor "
-                                                    "measurement",
-                                                    errorPrefix);
+                                                    "measurement of sensor : {}",
+                                                    errorPrefix, imuName);
                     return false;
                 }
 
@@ -1968,8 +1975,8 @@ bool WholeBodyQPBlock::advance()
                                                                     rpyTemp))
                 {
                     BipedalLocomotion::log()->error("{} Unable to get the orientation sensor "
-                                                    "measurement",
-                                                    errorPrefix);
+                                                    "measurement of sensor: {}",
+                                                    errorPrefix, imuName);
                     return false;
                 }
                 orientationData.I_R_I_IMU
@@ -1990,6 +1997,17 @@ bool WholeBodyQPBlock::advance()
     // m_jointPosRegularize[16] = 0.0;
     // m_jointPosRegularize[17] = 0.0;
     // m_jointPosRegularize.tail<14>() = m_input.regularizedJoints.tail<14>();
+
+    // use smoother to set the regularized joints
+    for (int i = 0; i < m_currentJointPos.size(); ++i) {
+        smoother.currentJointPos[i] = m_currentJointPos(i);
+    }
+    for (int i = 0; i < m_input.regularizedJoints.size(); ++i) {
+        smoother.refJointPos[i] = m_input.regularizedJoints(i);
+    }
+    smoother.jointsSmoother->init(smoother.currentJointPos);
+    smoother.jointsSmoother->computeNextValues(smoother.refJointPos);
+    smoother.yarpBuffer = smoother.jointsSmoother->getPos();
 
     m_jointPosRegularize = m_input.regularizedJoints;
 

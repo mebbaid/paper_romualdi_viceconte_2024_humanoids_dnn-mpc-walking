@@ -51,6 +51,9 @@
 #include <CentroidalMPCWalking/BaseEstimatorFromFootIMU.h>
 
 
+#include <iCub/ctrl/minJerkCtrl.h>
+
+
 namespace CentroidalMPCWalking
 {
 
@@ -136,6 +139,15 @@ class WholeBodyQPBlock
         double desired;
         double admittanceGain{2.5};
     };
+
+    struct Smoother
+    {
+        std::unique_ptr<iCub::ctrl::minJerkTrajGen> jointsSmoother;
+        yarp::sig::Vector currentJointPos;
+        yarp::sig::Vector refJointPos;
+        yarp::sig::Vector yarpBuffer;
+    };
+    Smoother smoother;
 
     JointRegularizationAnkleStrategy m_leftAnkleRoll;
     JointRegularizationAnkleStrategy m_leftAnklePitch;

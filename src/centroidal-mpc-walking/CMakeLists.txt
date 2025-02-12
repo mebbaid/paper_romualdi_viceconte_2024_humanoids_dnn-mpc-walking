@@ -22,6 +22,7 @@ add_centroidal_mpc_walking_application(
                   BipedalLocomotion::GenericContainer
                   BipedalLocomotion::VectorsCollection
                   casadi
+                  ctrlLib
   )
 
 install_robot_ini_files(${CMAKE_CURRENT_SOURCE_DIR}/config)

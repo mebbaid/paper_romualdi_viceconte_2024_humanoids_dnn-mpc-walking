@@ -73,6 +73,8 @@ find_package(BipedalLocomotionFramework 0.17.0 REQUIRED
 find_package(SDL REQUIRED)
 find_package(YARP COMPONENTS os sig REQUIRED)
 find_package(casadi REQUIRED)
+find_package(ICUB REQUIRED)
+
 
 yarp_configure_external_installation(dnn_mpc)
 
